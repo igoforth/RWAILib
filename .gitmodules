@@ -1,9 +1,9 @@
 [submodule "AIServer"]
 	path = AIServer
-	url = ./AIServer
+	url = git@github.com:/igoforth/RWAI_Server.git
 [submodule "AIItems"]
 	path = AIItems
-	url = ./AIItems
+	url = git@github.com:/igoforth/RWAI_Items.git
 [submodule "AICore"]
 	path = AICore
-	url = ./AICore
+	url = git@github.com:/igoforth/RWAI_Core.git

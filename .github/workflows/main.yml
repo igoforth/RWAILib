@@ -2,7 +2,7 @@ name: Build Branch
 on:
   workflow_dispatch:
   push:
-    branches: [ master ]
+    branches: [ ]
 
 jobs:
   build:

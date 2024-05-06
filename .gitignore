@@ -1,0 +1,12 @@
+# Dev environment files
+.vscode/
+.config/
+
+# Ignore nested artifacts
+**/Assemblies/
+**/bin/
+**/libexec/
+**/obj/
+
+# Ignore zip artifacts
+*.zip

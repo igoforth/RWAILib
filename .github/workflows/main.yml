@@ -1,0 +1,26 @@
+name: Build Branch
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: prebuild
+      run: |
+        mkdir -p Assemblies
+
+    - name: build
+      run: |
+#        # TEMP=${{ runner.temp }}/ python Make.py --csproj Source/Loader/Loader.csproj --output Assemblies/0CombatExtendedLoader.dll --download-libs --all-libs
+
+    - name: package
+      run: |
+        mkdir RWAILib
+        cp -r Source/ Assemblies/ About/ Defs/ Languages/ Patches/ Sounds/ Textures/ LoadFolders.xml README.md SupportedThirdPartyMods.md
+        zip -9 -r build.zip RWAILib

@@ -1,0 +1,9 @@
+[submodule "AIServer"]
+	path = AIServer
+	url = ./AIServer
+[submodule "AIItems"]
+	path = AIItems
+	url = ./AIItems
+[submodule "AICore"]
+	path = AICore
+	url = ./AICore

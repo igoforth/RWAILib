@@ -1,9 +1,15 @@
 [submodule "AIServer"]
-	path = AIServer
-	url = git@github.com:/igoforth/RWAI_Server.git
+    path = AIServer
+    url = ../RWAI_Server.git
+    fetchRecurseSubmodules = on-demand
+    branch = .
 [submodule "AIItems"]
-	path = AIItems
-	url = git@github.com:/igoforth/RWAI_Items.git
+    path = AIItems
+    url = ../RWAI_Items.git
+    fetchRecurseSubmodules = on-demand
+    branch = .
 [submodule "AICore"]
-	path = AICore
-	url = git@github.com:/igoforth/RWAI_Core.git
+    path = AICore
+    url = ../RWAI_Core.git
+    fetchRecurseSubmodules = on-demand
+    branch = .

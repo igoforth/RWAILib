@@ -13,3 +13,6 @@
 
 # Ignore models directory
 models/
+
+# Ignore minor project scripts
+utils/

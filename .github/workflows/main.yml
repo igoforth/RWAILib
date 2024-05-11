@@ -1,8 +1,11 @@
 name: Build Branch
+
 on:
-  workflow_dispatch:
   push:
     branches: [ ]
+  workflow_dispatch:
+
+permissions: read-all
 
 jobs:
   build:
@@ -17,7 +20,7 @@ jobs:
 
     - name: build
       run: |
-#        # TEMP=${{ runner.temp }}/ python Make.py --csproj Source/Loader/Loader.csproj --output Assemblies/0CombatExtendedLoader.dll --download-libs --all-libs
+        # TEMP=${{ runner.temp }}/ python Make.py --csproj Source/Loader/Loader.csproj --output Assemblies/0CombatExtendedLoader.dll --download-libs --all-libs
 
     - name: package
       run: |

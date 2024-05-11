@@ -10,8 +10,8 @@ import tempfile
 
 os_name, os_release, os_version = platform.system(), platform.release(), platform.version()
 
-MODEL_URL = "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
-MODEL_FILENAME = "Phi-3-mini-4k-instruct-q4.gguf"
+MODEL_URL = "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.Q4_K_M.gguf"
+MODEL_FILENAME = "Phi-3-mini-128k-instruct.Q4_K_M.gguf"
 CURL_URL = "https://cosmo.zip/pub/cosmos/bin/curl"
 CURL_FILENAME = "curl.com" if os_name == 'Windows' else "curl"
 LLAMAFILE_INFO = "Mozilla-Ocho/llamafile"
@@ -20,6 +20,21 @@ LLAMAFILE_FILENAME = "llamafile.com" if os_name == 'Windows' else "llamafile"
 AISERVER_INFO = "igoforth/RWAILib"
 AISERVER_REGEX = r"AIServer\.zip"
 AISERVER_FILENAME = "AIServer.zip"
+VERSION_FILENAME = ".version"
+
+def get_github_version(curl_path: pathlib.Path, repo: str) -> str:
+    api_url = f"https://api.github.com/{repo}/releases/latest"
+    response = download(curl_path, api_url)
+
+    if not response:
+        print ("Failed to retrieve the latest release information. Exiting...")
+        sys.exit(1)
+
+    try:
+        return json.loads(response)["tag_name"]
+    except Exception as e:
+        print (f"Failed to parse the response from {api_url} due to {e}")
+        sys.exit(1)
 
 def resolve_github(curl_path: pathlib.Path, repo: str, file_s: str) -> str:
     api_url = f"https://api.github.com/repos/{repo}/releases/latest"
@@ -119,8 +134,16 @@ def bootstrap(dst: pathlib.Path):
 
     # download the AI Server
     aiserver_url = resolve_github(curl_path, AISERVER_INFO, AISERVER_REGEX)
+    aiserver_version = get_github_version(curl_path, aiserver_url)
     aiserver_path = dst / AISERVER_FILENAME
     download(curl_path, aiserver_url, aiserver_path)
+
+    # pin the server version at "./.version"
+    version_path = dst / VERSION_FILENAME
+    if version_path.exists():
+        version_path.unlink()
+    with version_path.open("w") as f:
+        f.write(f"{aiserver_version}")
 
     # download the model
     model_path = models / MODEL_FILENAME

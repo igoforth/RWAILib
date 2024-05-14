@@ -16,3 +16,6 @@ models/
 
 # Ignore minor project scripts
 utils/
+
+# Ignore user-specific environment
+.env

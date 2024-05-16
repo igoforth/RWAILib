@@ -18,8 +18,8 @@ LLAMAFILE_INFO = "Mozilla-Ocho/llamafile"
 LLAMAFILE_REGEX = r"llamafile-\d+\.\d+\.\d+"
 LLAMAFILE_FILENAME = "llamafile.com" if os_name == 'Windows' else "llamafile"
 AISERVER_INFO = "igoforth/RWAILib"
-AISERVER_REGEX = r"AIServer\.zip"
-AISERVER_FILENAME = "AIServer.zip"
+AISERVER_REGEX = r"AIServer\.pyz"
+AISERVER_FILENAME = "AIServer.pyz"
 VERSION_FILENAME = ".version"
 
 def get_github_version(curl_path: pathlib.Path, repo: str) -> str:
@@ -84,7 +84,7 @@ def download(curl_path: pathlib.Path, url: str, dst: pathlib.Path | None = None)
     else:
         destination = str(dst)
 
-    command = f"{str(curl_path)} -L {url} -o {destination}"
+    command = f"{str(curl_path)} -ZL {url} -o {destination}"
 
     run_cmd(command)
 
@@ -108,20 +108,34 @@ def bootstrap(dst: pathlib.Path):
     models.mkdir(parents=True, exist_ok=True)
     bins.mkdir(parents=True, exist_ok=True)
     
-    # check for CURL
-    if os_name == 'Windows' and int(os_version.split(".")[2]) < 17063:
-        # Bootstrap CURL
-        curl_path = bins / CURL_FILENAME
+    # Bootstrap CURL
+    # on windows versions lower than 10 this is absolutely necessary because powershell downloads are slow as shit
+    # windows 10 and later comes with curl
+    # HOWEVER i admire the features of the latest curl so i can't resist
+    curl_path = bins / CURL_FILENAME
+    if os_name == 'Windows': # `and int(os_version.split(".")[2]) < 17063`
         command = f"powershell -Command \"Invoke-WebRequest {CURL_URL} -OutFile {curl_path}\""
-        run_cmd(command)
     else:
-        curl_path = shutil.which("curl")
+        command = f"{shutil.which('curl')} -L {CURL_URL} -o {curl_path}"
+    run_cmd(command)
 
     if not curl_path:
-        print("Failed to find CURL")
+        print("Failed to get CURL")
         sys.exit(1)
-    else:
-        curl_path = pathlib.Path(curl_path)
+
+    if os_name != 'Windows':
+        # make curl executable
+        os.chmod(curl_path, 0o755)
+        # https://github.com/jart/cosmopolitan?tab=readme-ov-file#linux
+        try:
+            subprocess.check_call(curl_path)
+        except subprocess.CalledProcessError:
+            curl_path = shutil.which('curl')
+            if not curl_path:
+                print("Failed to get CURL")
+                sys.exit(1)
+
+    curl_path = pathlib.Path(curl_path)
 
     # download llamafile
     llamafile_url = resolve_github(curl_path, LLAMAFILE_INFO, LLAMAFILE_REGEX)

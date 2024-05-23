@@ -1,3 +1,4 @@
+import enum
 import json
 import os
 import pathlib
@@ -18,18 +19,41 @@ import tempfile
     platform.version(),
 )
 
-SHELL = "powershell.exe" if platform.system() == "Windows" else "sh"
-MODEL_URL = "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.Q4_K_M.gguf"
-MODEL_FILENAME = "Phi-3-mini-128k-instruct.Q4_K_M.gguf"
+SHELL = "powershell.exe" if os_name == "Windows" else "sh"
+
+MODEL_TEST_URL = (
+    "https://huggingface.co/TKDKid1000/phi-1_5-GGUF/resolve/main/phi-1_5-Q2_K.gguf"
+)
+MODEL_TEST_FILENAME = "phi-1_5-Q2_K.gguf"
+MODEL_MINI_URL = "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.IQ4_NL.gguf"
+MODEL_MINI_FILENAME = "Phi-3-mini-128k-instruct.IQ4_NL.gguf"
+MODEL_SMALL_URL = "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.Q8_0.gguf"  # for now, no GGUF for Phi-3-small yet :(
+MODEL_SMALL_FILENAME = "Phi-3-mini-128k-instruct.Q8_0.gguf"
+MODEL_MEDIUM_URL = "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-IQ4_NL.gguf"
+MODEL_MEDIUM_FILENAME = "Phi-3-medium-128k-instruct-IQ4_NL.gguf"
+
 CURL_URL = "https://cosmo.zip/pub/cosmos/bin/curl"
 CURL_FILENAME = "curl.com" if os_name == "Windows" else "curl"
 LLAMAFILE_INFO = "Mozilla-Ocho/llamafile"
 LLAMAFILE_REGEX = r"llamafile-\d+\.\d+\.\d+"
 LLAMAFILE_FILENAME = "llamafile.com" if os_name == "Windows" else "llamafile"
+LLAMAFILE_TEST_PARAMS_LIST: list[str] = [
+    "-ngl",
+    "9999",
+    "-m",
+    "models/Phi-3-mini-128k-instruct.Q4_K_M.gguf",
+    "--cli",
+]
 AISERVER_INFO = "igoforth/RWAILib"
 AISERVER_REGEX = r"AIServer\.pyz"
 AISERVER_FILENAME = "AIServer.pyz"
 VERSION_FILENAME = ".version"
+
+
+class ModelSize(enum.Enum):
+    MINI = 1
+    SMALL = 2
+    MEDIUM = 3
 
 
 def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) -> str:
@@ -55,6 +79,189 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         sys.exit(1)
 
 
+def get_total_ram() -> int:
+    """Returns the total amount of RAM in bytes."""
+
+    if os_name == "Windows":
+        command = "wmic ComputerSystem get TotalPhysicalMemory"
+        output = run_cmd(command, return_output=True)
+        if output:
+            return int(output.split("\n")[1].strip())
+        else:
+            print(
+                "Failed to retrieve available RAM from Windows. Returning conservative estimate.",
+                file=sys.stderr,
+            )
+            return 4000000000
+
+    elif os_name == "Linux":
+        with open("/proc/meminfo", "r") as f:
+            meminfo = f.read()
+        mem_total_line = next(
+            line for line in meminfo.split("\n") if line.startswith("MemTotal")
+        )
+        mem_total_kb = int(mem_total_line.split()[1])
+        return mem_total_kb * 1024
+
+    elif os_name == "Darwin":
+        command = "sysctl hw.memsize"
+        output = run_cmd(command, return_output=True)
+        if output:
+            return int(output.split()[1])
+        else:
+            print(
+                "Failed to retrieve available RAM from Darwin. Returning conservative estimate.",
+                file=sys.stderr,
+            )
+            return 4000000000
+
+    else:
+        raise NotImplementedError(f"Unsupported platform: {os_name}")
+
+
+# this is going to be the worst heuristic I've ever made
+def estimate_vram(gpu_model: str) -> ModelSize | None:
+    gpu_model = gpu_model.strip()
+    # gpu_r = re.compile(
+    #     r"^.*(?P<family>RX|RTX|GTX) (?P<model>\w+).*compute capability (?P<cc>[\d\.]+).*$",
+    #     re.IGNORECASE,
+    # )
+    gpu_r = re.compile(
+        r"^Device 0.*(?P<family>RX|RTX|GTX) (?P<model>\w+).*$",
+        re.IGNORECASE,
+    )
+    mdl_lst = ["50", "60", "70", "80", "90"]
+    gpu_model = gpu_model.lower()
+
+    match = gpu_r.match(gpu_model)
+    if not match:
+        return None
+
+    family = match.group("family").upper()
+    model = match.group("model")
+    # compute_capability = match.group("cc")
+
+    # Phi-3-medium-128k-instruct-Q4_K_M.gguf 8.56GB
+    # Phi-3-small-128k-instruct-Q4_K_M.gguf will be ~4.51GB
+    # Phi-3-mini-128k-instruct-Q4_K_M.gguf 2.34GB
+
+    nvidia_vram = {
+        "50": ModelSize.MINI,  # "2GB to 4GB",
+        "60": ModelSize.MINI,  # "3GB to 6GB",
+        "70": ModelSize.SMALL,  # "8GB",
+        "80": ModelSize.MEDIUM,  # "8GB to 11GB",
+        "90": ModelSize.MEDIUM,  # "24GB",
+    }
+
+    amd_vram = {
+        "50": ModelSize.MINI,  # "2GB to 4GB",
+        "60": ModelSize.MINI,  # "2GB to 6GB",
+        "70": ModelSize.SMALL,  # "4GB to 12GB",
+        "80": ModelSize.MEDIUM,  # "8GB to 16GB",
+        "90": ModelSize.MEDIUM,  # "16GB",
+    }
+
+    if family == "GTX" or family == "RTX":
+        for mdl in mdl_lst:
+            if mdl in model:
+                return nvidia_vram.get(mdl, ModelSize.MINI)
+    elif family == "RX":
+        for mdl in mdl_lst:
+            if mdl in model:
+                return amd_vram.get(mdl, ModelSize.MINI)
+
+    return None
+
+
+def get_capabilities(
+    curl_path: pathlib.Path,
+    dst: pathlib.Path,
+    llamafile_path: pathlib.Path,
+    windows_fallback: bool,
+) -> ModelSize:
+    models: pathlib.Path = dst / "models"
+    test_model_url: str = (
+        "https://huggingface.co/TKDKid1000/phi-1_5-GGUF/resolve/main/phi-1_5-Q2_K.gguf"
+    )
+    test_model_name: str = "phi-1_5-Q2_K.gguf"
+    test_model_path: pathlib.Path = (models / test_model_name).relative_to(dst)
+    llamafile_test_params_list: list[str] = [
+        "-ngl",
+        "9999",
+        "-m",
+        str(test_model_path),
+        "--cli",
+    ]
+
+    def finish(mdl: ModelSize) -> ModelSize:
+        if test_model_path.exists():
+            test_model_path.unlink()
+        return mdl
+
+    # success:
+    # "Apple Metal GPU support successfully loaded"
+    # "welcome to CUDA SDK with tinyBLAS"
+    # failure:
+    # "tinyBLAS not supported"
+
+    download(
+        curl_path,
+        dst,
+        test_model_url,
+        test_model_path,
+        windows_fallback=windows_fallback,
+        resume_flag=True,
+    )
+
+    try:
+        output = subprocess.check_output(
+            [llamafile_path, *llamafile_test_params_list],
+            stderr=subprocess.STDOUT,
+        )
+        if output is not None:
+            # ggml_metal_init: found device: Apple M2 Pro
+            # ggml_init_cublas: no CUDA devices found, CUDA will be disabled
+            # ggml_init_cublas: found * ROCm devices:
+            # Device 0: Radeon RX 7900 XTX, compute capability 11.0, VMM: no
+            # ggml_cuda_init: found * CUDA devices:
+            # Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes
+            # Device 0: NVIDIA GeForce GTX 1060, compute capability 6.1
+            # 7900 xtx: 24gb vram
+            # 4090: 24gb vram
+            # 3060: 12gb vram, cc 8.6
+            # 1080 Ti: 11gb vram, but same cc as 1060
+            # 1060: 6gb vram
+            # should make biggest model fit in 6gb vram?
+
+            # ggml_metal_init (Metal)
+            # ggml_init_cublas (AMD)
+            # ggml_cuda_init (Nvidia)
+            # default (CPU)
+
+            output: str = output.decode("utf-8")
+            if "ggml_metal_init" in output:
+                # just to be performant. optimize later
+                return finish(ModelSize.MINI)
+            else:
+                lines: list[str] = output.split("\n")
+                result = None
+                for line in lines:
+                    result = estimate_vram(line)
+                    if result is not None:
+                        break
+                if result is None:
+                    return finish(ModelSize.MINI)
+                else:
+                    return finish(result)
+
+    except subprocess.CalledProcessError:
+        print("Could not run llamafile!", file=sys.stderr)
+        sys.exit(1)
+    except UnicodeDecodeError:
+        print("Could not decode llamafile output!", file=sys.stderr)
+        sys.exit(1)
+
+
 def resolve_github(
     curl_path: pathlib.Path,
     cwd: pathlib.Path,
@@ -74,6 +281,7 @@ def resolve_github(
         api_url,
         windows_fallback=windows_fallback,
         user_agent=user_agent,
+        resume_flag=True,
     )
 
     if not response:
@@ -104,11 +312,11 @@ def resolve_github(
     return download_url
 
 
-def run_cmd(command: str) -> None:
+def run_cmd(command: str, return_output: bool = False) -> str | None:
     string_command = "`" + command + "`"
     try:
         print(string_command)
-        subprocess.run(
+        result = subprocess.run(
             command,
             shell=True,
             executable=SHELL,
@@ -116,6 +324,8 @@ def run_cmd(command: str) -> None:
             text=True,
             check=True,
         )
+        if return_output:
+            return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         print(f"Failed to run {string_command} due to {e}", file=sys.stderr)
         sys.exit(1)
@@ -145,6 +355,8 @@ def download(
         if resume_flag:
             command = f'{str(curl_path)} -C - -ZL "{url}" -o "{destination}"'
         else:
+            if dst and dst.exists():
+                dst.unlink()
             command = f'{str(curl_path)} -ZL "{url}" -o "{destination}"'
         if user_agent:
             command += f' -A "{user_agent}"'
@@ -255,6 +467,23 @@ def bootstrap(dst: pathlib.Path):
         windows_fallback=windows_fallback,
     )
 
+    # determine model to download
+    model_size: ModelSize = get_capabilities(
+        curl_path,
+        dst,
+        llamafile_path,
+        windows_fallback,
+    )
+    if model_size == ModelSize.MEDIUM:
+        model_url = MODEL_MEDIUM_URL
+        model_path = (models / MODEL_MEDIUM_FILENAME).relative_to(dst)
+    elif model_size == ModelSize.SMALL:
+        model_url = MODEL_SMALL_URL
+        model_path = (models / MODEL_SMALL_FILENAME).relative_to(dst)
+    else:
+        model_url = MODEL_MINI_URL
+        model_path = (models / MODEL_MINI_FILENAME).relative_to(dst)
+
     if os_name != "Windows":
         # make llamafile executable
         os.chmod(llamafile_path, 0o755)
@@ -285,11 +514,10 @@ def bootstrap(dst: pathlib.Path):
         f.write(f"{aiserver_version}")
 
     # download the model
-    model_path = (models / MODEL_FILENAME).relative_to(dst)
     download(
         curl_path,
         dst,
-        MODEL_URL,
+        model_url,
         model_path,
         windows_fallback=windows_fallback,
         resume_flag=True,

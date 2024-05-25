@@ -32,10 +32,10 @@ class File(typing.NamedTuple):
 
 
 class Files(enum.Enum):
-    """Files we will download to bootstrap."""
+    """Files we will write and/or download to bootstrap."""
 
     CURL = File(
-        file="powershell.exe" if os_name == "Windows" else "sh",
+        file="curl.com" if os_name == "Windows" else "curl",
         name=re.compile(r"powershell\.exe" if os_name == "Windows" else r"sh"),
         url="https://cosmo.zip/pub/cosmos/bin/curl",
     )

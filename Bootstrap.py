@@ -1,14 +1,7 @@
 import enum
-import json
-import os
 import pathlib
 import platform
 import re
-import shutil
-import string
-import subprocess
-import sys
-import tempfile
 import typing
 
 (
@@ -25,6 +18,8 @@ SHELL = "powershell.exe" if os_name == "Windows" else "sh"
 
 
 class File(typing.NamedTuple):
+    import re
+
     file: str
     name: re.Pattern[str]
     url: str = ""
@@ -33,6 +28,8 @@ class File(typing.NamedTuple):
 
 class Files(enum.Enum):
     """Files we will write and/or download to bootstrap."""
+
+    import re
 
     CURL = File(
         file="curl.com" if os_name == "Windows" else "curl",
@@ -86,26 +83,26 @@ class Models(enum.Enum):
     """613 MB"""
 
     MINI = Model(
-        "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.IQ4_NL.gguf",
-        "Phi-3-mini-128k-instruct.IQ4_NL.gguf",
+        "https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-v0.3-GGUF/resolve/main/Phi-3-mini-4k-instruct-v0.3-Q4_K_M.gguf",
+        "Phi-3-mini-4k-instruct-v0.3-Q4_K_M.gguf",
         ModelSize.MINI,
     )
-    """2.18 GB"""
+    """2.39 GB"""
 
     SMALL = Model(
         # for now, no GGUF for Phi-3-small-128k yet :(
-        "https://huggingface.co/PrunaAI/Phi-3-mini-128k-instruct-GGUF-Imatrix-smashed/resolve/main/Phi-3-mini-128k-instruct.Q8_0.gguf",
-        "Phi-3-mini-128k-instruct.Q8_0.gguf",
+        "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-IQ2_XS.gguf",
+        "Phi-3-medium-128k-instruct-IQ2_XS.gguf",
         ModelSize.SMALL,
     )
-    """4.06 GB"""
+    """4.13 GB"""
 
     MEDIUM = Model(
-        "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-IQ4_NL.gguf",
-        "Phi-3-medium-128k-instruct-IQ4_NL.gguf",
+        "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-Q4_K_M.gguf",
+        "Phi-3-medium-128k-instruct-Q4_K_M.gguf",
         ModelSize.MEDIUM,
     )
-    """7.9 GB"""
+    """8.57 GB"""
 
 
 class ErrMsg(enum.Enum):
@@ -155,10 +152,15 @@ class ErrMsg(enum.Enum):
     """Error message when an unknown error occurs."""
 
     def format(self, **kwargs: str):
+        import string
+
         return string.Template(self.value).safe_substitute(**kwargs)
 
 
 def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) -> str:
+    import json
+    import sys
+
     api_url: str = f"https://api.github.com/repos/{repo}/releases/latest"
     user_agent: str = "igoforth/RWAILib"
 
@@ -166,7 +168,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
 
     if response is None:
         print(
-            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -174,7 +176,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         response = response.strip()
     if response == "":
         print(
-            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -183,7 +185,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         return json.loads(response)["tag_name"]
     except json.JSONDecodeError as e:
         print(
-            ErrMsg.PARSE_RESPONSE_ERROR.format(api_url=api_url, error=e.msg),
+            ErrMsg.PARSE_RESPONSE_ERROR.value.format(api_url=api_url, error=e.msg),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -191,6 +193,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
 
 def get_total_ram() -> int:
     """Returns the total amount of RAM in bytes."""
+    import sys
 
     if os_name == "Windows":
         command = "wmic ComputerSystem get TotalPhysicalMemory"
@@ -198,7 +201,7 @@ def get_total_ram() -> int:
         if output:
             return int(output.split("\n")[1].strip())
         else:
-            print(ErrMsg.RAM_RETRIEVAL_FAILED_WINDOWS, file=sys.stderr)
+            print(ErrMsg.RAM_RETRIEVAL_FAILED_WINDOWS.value, file=sys.stderr)
             return 4000000000
 
     elif os_name == "Linux":
@@ -216,15 +219,19 @@ def get_total_ram() -> int:
         if output:
             return int(output.split()[1])
         else:
-            print(ErrMsg.RAM_RETRIEVAL_FAILED_DARWIN, file=sys.stderr)
+            print(ErrMsg.RAM_RETRIEVAL_FAILED_DARWIN.value, file=sys.stderr)
             return 4000000000
 
     else:
-        raise NotImplementedError(ErrMsg.PLATFORM_UNSUPPORTED.format(os_name=os_name))
+        raise NotImplementedError(
+            ErrMsg.PLATFORM_UNSUPPORTED.value.format(os_name=os_name)
+        )
 
 
 # this is going to be the worst heuristic I've ever made
 def estimate_vram(gpu_model: str) -> ModelSize | None:
+    import re
+
     gpu_model = gpu_model.strip()
     # gpu_r = re.compile(
     #     r"^.*(?P<family>RX|RTX|GTX) (?P<model>\w+).*compute capability (?P<cc>[\d\.]+).*$",
@@ -283,12 +290,11 @@ def get_capabilities(
     llamafile_path: pathlib.Path,
     windows_fallback: bool,
 ) -> Model:
+    import subprocess
+    import sys
+
     models: pathlib.Path = dst / "models"
-    test_model_url: str = (
-        "https://huggingface.co/TKDKid1000/phi-1_5-GGUF/resolve/main/phi-1_5-Q2_K.gguf"
-    )
-    test_model_name: str = "phi-1_5-Q2_K.gguf"
-    test_model_path: pathlib.Path = (models / test_model_name).relative_to(dst)
+    test_model_path: pathlib.Path = (models / Models.TEST.value.file).relative_to(dst)
     llamafile_test_params_list: list[str] = [
         "-ngl",
         "9999",
@@ -311,7 +317,7 @@ def get_capabilities(
     download(
         curl_path,
         dst,
-        test_model_url,
+        Models.TEST.value.url,
         test_model_path,
         windows_fallback=windows_fallback,
         resume_flag=True,
@@ -360,10 +366,10 @@ def get_capabilities(
             raise Exception
 
     except subprocess.CalledProcessError:
-        print(ErrMsg.LLAMAFILE_EXECUTION_FAILED, file=sys.stderr)
+        print(ErrMsg.LLAMAFILE_EXECUTION_FAILED.value, file=sys.stderr)
         sys.exit(1)
     except Exception:
-        print(ErrMsg.LLAMAFILE_DECODE_FAILED, file=sys.stderr)
+        print(ErrMsg.LLAMAFILE_DECODE_FAILED.value, file=sys.stderr)
         sys.exit(1)
 
 
@@ -374,6 +380,9 @@ def resolve_github(
     file_r: re.Pattern[str],
     windows_fallback: bool,
 ) -> str:
+    import json
+    import sys
+
     api_url = f"https://api.github.com/repos/{repo}/releases/latest"
     user_agent: str = "igoforth/RWAILib"
     download_url = ""
@@ -389,7 +398,7 @@ def resolve_github(
 
     if response is None:
         print(
-            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -397,7 +406,7 @@ def resolve_github(
         response = response.strip()
     if response == "":
         print(
-            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -413,12 +422,12 @@ def resolve_github(
                 break
 
         if not download_url:
-            print(ErrMsg.RELEASE_NOT_FOUND.format(repo=repo), file=sys.stderr)
+            print(ErrMsg.RELEASE_NOT_FOUND.value.format(repo=repo), file=sys.stderr)
             sys.exit(1)
 
     except Exception as e:
         print(
-            ErrMsg.UNKNOWN_ERROR.format(traceback=str(e)),
+            ErrMsg.UNKNOWN_ERROR.value.format(traceback=str(e)),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -427,6 +436,9 @@ def resolve_github(
 
 
 def run_cmd(command: str, return_output: bool = False) -> str | None:
+    import subprocess
+    import sys
+
     string_command = "`" + command + "`"
     try:
         print(string_command)
@@ -442,7 +454,7 @@ def run_cmd(command: str, return_output: bool = False) -> str | None:
             return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         print(
-            ErrMsg.RUN_COMMAND_FAILED.format(command=e.cmd, stderr=e.stderr),
+            ErrMsg.RUN_COMMAND_FAILED.value.format(command=e.cmd, stderr=e.stderr),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -457,14 +469,11 @@ def download(
     resume_flag: bool = False,
     user_agent: str = "",
 ) -> str | None:
+    import tempfile
 
     # if no destination is provided, caller wants the contents of the file
     if not dst:
-        destination = str(
-            pathlib.Path(tempfile.NamedTemporaryFile(delete=False).name).relative_to(
-                cwd
-            )
-        )
+        destination = str(pathlib.Path(tempfile.NamedTemporaryFile(delete=False).name))
     else:
         destination = str(dst)
 
@@ -486,6 +495,8 @@ def download(
     run_cmd(command)
 
     if not dst:
+        import os
+
         # return the contents of the file and delete the file
         with open(destination, "r") as f:
             contents = f.read()
@@ -499,6 +510,11 @@ def download(
 
 
 def bootstrap(dst: pathlib.Path):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
     windows_fallback: bool = False  # use powershell download if curl fails
     models = dst / "models"
     bins = dst / "bin"
@@ -560,11 +576,11 @@ def bootstrap(dst: pathlib.Path):
         elif not curl_path and os_name == "Windows":
             windows_fallback = True
         elif not curl_path:
-            print(ErrMsg.CURL_PREPARATION_FAILED, file=sys.stderr)
+            print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
             sys.exit(1)
 
     if not curl_path:
-        print(ErrMsg.CURL_RETRIEVAL_FAILED, file=sys.stderr)
+        print(ErrMsg.CURL_RETRIEVAL_FAILED.value, file=sys.stderr)
         sys.exit(1)
 
     # download llamafile
@@ -584,6 +600,10 @@ def bootstrap(dst: pathlib.Path):
         windows_fallback=windows_fallback,
     )
 
+    if os_name != "Windows":
+        # make llamafile executable
+        os.chmod(llamafile_path, 0o755)
+
     # determine model to download
     model: Model = get_capabilities(
         curl_path,
@@ -592,10 +612,6 @@ def bootstrap(dst: pathlib.Path):
         windows_fallback,
     )
     model_path = (models / model.file).relative_to(dst)
-
-    if os_name != "Windows":
-        # make llamafile executable
-        os.chmod(llamafile_path, 0o755)
 
     # download the AI Server
     aiserver_url = resolve_github(
@@ -640,6 +656,7 @@ def bootstrap(dst: pathlib.Path):
 
 
 def main():
+    import os
 
     # convert relative to absolute path
     directory = pathlib.Path(os.getcwd()).resolve()
@@ -649,5 +666,7 @@ def main():
 
 
 if __name__ == "__main__":
+    import sys
+
     main()
     sys.exit(0)

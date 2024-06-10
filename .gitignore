@@ -19,3 +19,6 @@ utils/
 
 # Ignore user-specific environment
 .env
+
+# Ignore assets
+art/

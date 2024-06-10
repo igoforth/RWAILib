@@ -3,7 +3,9 @@ name: Build
 env:
   # Change this to point to your solution, or the folder in which your solution 
   # can be found.
-  SLN_PATH: .
+  CORE_PATH: AICore
+  ITEMS_PATH: AIItems
+  SERVER_PATH: AIServer
 
 on:
   push:
@@ -40,11 +42,18 @@ jobs:
       with:
         dotnet-version: 8.0.x
       
-    - name: Install Mod Dependencies
-      run: dotnet restore ${{ env.SLN_PATH }}
+    - name: Build AI Core
+      run: |
+        pushd ${{ env.CORE_PATH }}
+        dotnet restore -f net472 -c Release
+        dotnet build -f net472 -c Release
+        dotnet clean -f net472 -c Release
+        popd
 
     - name: Build Mod
-      run: dotnet build ${{ env.SLN_PATH }} --configuration Debug --no-restore
+      run: |
+        dotnet restore 
+        dotnet build ${{ env.CORE_PATH }} -c Release
 
     # I don't know how well testing will work without Rimworld actually installed. 
     # But if you have unit tests configured to work with dotnet, you may be able 

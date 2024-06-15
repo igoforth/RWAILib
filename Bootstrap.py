@@ -270,6 +270,7 @@ def estimate_vram(gpu_model: str) -> ModelSize | None:
         "70": ModelSize.SMALL,  # "4GB to 12GB",
         "80": ModelSize.MEDIUM,  # "8GB to 16GB",
         "90": ModelSize.MEDIUM,  # "16GB",
+        "95": ModelSize.MEDIUM,  # AMD uses 95 too apparently
     }
 
     if family == "GTX" or family == "RTX":

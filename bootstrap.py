@@ -89,6 +89,13 @@ class Models(enum.Enum):
     )
     """2.39 GB"""
 
+    MINI_CHINA = Model(
+        "https://modelscope.cn/api/v1/models/OllmOne/Phi-3-mini-4k-instruct-gguf/repo?Revision=master&FilePath=Phi-3-mini-4k-instruct-q4.gguf",
+        "Phi-3-mini-4k-instruct-q4.gguf",
+        ModelSize.MINI,
+    )
+    """2.32 GB"""
+
     SMALL = Model(
         # for now, no GGUF for Phi-3-small-128k yet :(
         "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-IQ2_XS.gguf",
@@ -510,7 +517,7 @@ def download(
         return None
 
 
-def bootstrap(dst: pathlib.Path):
+def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     import os
     import shutil
     import subprocess
@@ -606,12 +613,16 @@ def bootstrap(dst: pathlib.Path):
         os.chmod(llamafile_path, 0o755)
 
     # determine model to download
-    model: Model = get_capabilities(
-        curl_path,
-        dst,
-        llamafile_path,
-        windows_fallback,
-    )
+    if not use_chinese_domains:
+        model: Model = get_capabilities(
+            curl_path,
+            dst,
+            llamafile_path,
+            windows_fallback,
+        )
+    else:
+        print("感谢您在中国使用RimWorldAI！huggingface.co无法访问，因此我们将使用modelscope.cn。遗憾的是，截至2024年6月19日，只有Phi-3-mini可用。感谢您的耐心等待，我们正在等待Phi-3-small和Phi-3-medium的上线。")
+        model: Model = Models.MINI_CHINA.value
     model_path = (models / model.file).relative_to(dst)
 
     # download the AI Server
@@ -657,13 +668,59 @@ def bootstrap(dst: pathlib.Path):
 
 
 def main():
+    import argparse
     import os
+
+    parser = argparse.ArgumentParser(description="A bootstrapper for RimWorldAI")
+    parser.add_argument(
+        "--language",
+        choices=[
+            "Arabic",
+            "ChineseSimplified",
+            "ChineseTraditional",
+            "Czech",
+            "Danish",
+            "Dutch",
+            "English",
+            "Estonian",
+            "Finnish",
+            "French",
+            "German",
+            "Hungarian",
+            "Italian",
+            "Japanese",
+            "Korean",
+            "Norwegian",
+            "Polish",
+            "Portuguese",
+            "PortugueseBrazilian",
+            "Romanian",
+            "Russian",
+            "Slovak",
+            "Spanish",
+            "SpanishLatin",
+            "Swedish",
+            "Turkish",
+            "Ukrainian",
+        ],
+        default=None,
+        help="The language assists in determining the domain to download the model from.",
+        type=str,
+        required=False,
+    )
+    args = parser.parse_args()
+
+    if args.language is None:
+        args.language = "PLACEHOLDER_STRING_LANGUAGE"
 
     # convert relative to absolute path
     directory = pathlib.Path(os.getcwd()).resolve()
 
+    # determine region
+    use_chinese_domains = True if "Chinese" in args.language else False
+
     # bootstrap
-    bootstrap(directory)
+    bootstrap(directory, use_chinese_domains)
 
 
 if __name__ == "__main__":

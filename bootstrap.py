@@ -175,7 +175,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
 
     if response is None:
         print(
-            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -183,7 +183,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         response = response.strip()
     if response == "":
         print(
-            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -192,7 +192,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         return json.loads(response)["tag_name"]
     except json.JSONDecodeError as e:
         print(
-            ErrMsg.PARSE_RESPONSE_ERROR.value.format(api_url=api_url, error=e.msg),
+            ErrMsg.PARSE_RESPONSE_ERROR.format(api_url=api_url, error=e.msg),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -230,9 +230,7 @@ def get_total_ram() -> int:
             return 4000000000
 
     else:
-        raise NotImplementedError(
-            ErrMsg.PLATFORM_UNSUPPORTED.value.format(os_name=os_name)
-        )
+        raise NotImplementedError(ErrMsg.PLATFORM_UNSUPPORTED.format(os_name=os_name))
 
 
 # this is going to be the worst heuristic I've ever made
@@ -406,7 +404,7 @@ def resolve_github(
 
     if response is None:
         print(
-            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -414,7 +412,7 @@ def resolve_github(
         response = response.strip()
     if response == "":
         print(
-            ErrMsg.RESPONSE_ERROR.value.format(api_url=api_url),
+            ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -430,12 +428,12 @@ def resolve_github(
                 break
 
         if not download_url:
-            print(ErrMsg.RELEASE_NOT_FOUND.value.format(repo=repo), file=sys.stderr)
+            print(ErrMsg.RELEASE_NOT_FOUND.format(repo=repo), file=sys.stderr)
             sys.exit(1)
 
     except Exception as e:
         print(
-            ErrMsg.UNKNOWN_ERROR.value.format(traceback=str(e)),
+            ErrMsg.UNKNOWN_ERROR.format(traceback=str(e)),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -462,7 +460,7 @@ def run_cmd(command: str, return_output: bool = False) -> str | None:
             return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         print(
-            ErrMsg.RUN_COMMAND_FAILED.value.format(command=e.cmd, stderr=e.stderr),
+            ErrMsg.RUN_COMMAND_FAILED.format(command=e.cmd, stderr=e.stderr),
             file=sys.stderr,
         )
         sys.exit(1)

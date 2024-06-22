@@ -644,7 +644,7 @@ def download(
         destination = str(pathlib.Path(destination).resolve())
         drv_ltr = (re.search(r"^/(\w)/.*$", destination)).group(1)  # type: ignore
         destination = drv_ltr + ":" + destination[2:].replace("/", "\\")
-        command = f'bitsadmin /transfer 1 "{url}" "{destination}"\''
+        command = f'bitsadmin /transfer 1 "{url}" "{destination}"'
 
     run_cmd(
         command,

@@ -691,7 +691,9 @@ def download(
 
     # if no destination is provided, caller wants the contents of the file
     if not dst:
-        destination = str(pathlib.Path(tempfile.NamedTemporaryFile(delete=False).name))
+        destination = str(
+            platform_path(pathlib.Path(tempfile.NamedTemporaryFile(delete=False).name))
+        )
     else:
         destination = str(dst)
 
@@ -704,24 +706,12 @@ def download(
         destination = platform_path(destination)
         command = f'bitsadmin /transfer 1 "{url}" "{destination}"'
 
-    result = run_cmd(
+    run_cmd(
         command,
         progress_reporter=progress_reporter,
         index=index,
         file_size=file_size,
     )
-    if type(result) is bool and result is False and windows_fallback is False:
-        # destination could have been misconstructed, try with platform path
-        destination = str(platform_path(pathlib.Path(destination).resolve()))
-        command = construct_command(
-            curl_path, url, destination, dst, resume_flag, user_agent
-        )
-        result = run_cmd(
-            command,
-            progress_reporter=progress_reporter,
-            index=index,
-            file_size=file_size,
-        )
 
     if not dst:
         import os
@@ -797,7 +787,7 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         curl_path = shutil.which(backup_curl)
         if curl_path and os_name == "Windows":
             # use windows curl with Windows paths
-            curl_path = platform_path(pathlib.Path(backup_curl).resolve())
+            curl_path = platform_path(pathlib.Path(backup_curl))
             try:
                 subprocess.check_call(
                     [

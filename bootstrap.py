@@ -15,6 +15,7 @@ import typing
 )
 
 SHELL = "powershell.exe" if os_name == "Windows" else "sh"
+PROGRESS_REGEX = re.compile(rb"(\d+)\.\d+%")
 
 
 class File(typing.NamedTuple):
@@ -22,6 +23,7 @@ class File(typing.NamedTuple):
 
     file: str
     name: re.Pattern[str]
+    size: int
     url: str = ""
     repo: str = ""
 
@@ -34,27 +36,31 @@ class Files(enum.Enum):
     CURL = File(
         file="curl.com" if os_name == "Windows" else "curl",
         name=re.compile(r"curl\.exe" if os_name == "Windows" else r"curl"),
+        size=6300000,
         url="https://cosmo.zip/pub/cosmos/bin/curl",
     )
-    """6.4 MB"""
+    """6.3 MB"""
 
     LLAMAFILE = File(
         file="llamafile.com" if os_name == "Windows" else "llamafile",
         name=re.compile(r"llamafile-\d+\.\d+\.\d+"),
+        size=34600000,
         repo="Mozilla-Ocho/llamafile",
     )
-    """27.9 MB"""
+    """34.6 MB"""
 
     AISERVER = File(
         file="AIServer.pyz",
         name=re.compile(r"AIServer\.pyz"),
+        size=103300000,
         repo="igoforth/RWAILib",
     )
-    """3.7 MB"""
+    """103.3 MB"""
 
     VERSION = File(
         file=".version",
         name=re.compile(r"\.version"),
+        size=1000,
     )
     """1 KB"""
 
@@ -70,6 +76,7 @@ class Model(typing.NamedTuple):
     url: str
     file: str
     size: ModelSize
+    real_size: int
 
 
 class Models(enum.Enum):
@@ -79,6 +86,7 @@ class Models(enum.Enum):
         "https://huggingface.co/TKDKid1000/phi-1_5-GGUF/resolve/main/phi-1_5-Q2_K.gguf",
         "phi-1_5-Q2_K.gguf",
         ModelSize.TEST,
+        613000000,
     )
     """613 MB"""
 
@@ -86,6 +94,7 @@ class Models(enum.Enum):
         "https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-v0.3-GGUF/resolve/main/Phi-3-mini-4k-instruct-v0.3-Q4_K_M.gguf",
         "Phi-3-mini-4k-instruct-v0.3-Q4_K_M.gguf",
         ModelSize.MINI,
+        2390000000,
     )
     """2.39 GB"""
 
@@ -93,6 +102,7 @@ class Models(enum.Enum):
         "https://modelscope.cn/api/v1/models/OllmOne/Phi-3-mini-4k-instruct-gguf/repo?Revision=master&FilePath=Phi-3-mini-4k-instruct-q4.gguf",
         "Phi-3-mini-4k-instruct-q4.gguf",
         ModelSize.MINI,
+        2320000000,
     )
     """2.32 GB"""
 
@@ -101,6 +111,7 @@ class Models(enum.Enum):
         "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-IQ2_XS.gguf",
         "Phi-3-medium-128k-instruct-IQ2_XS.gguf",
         ModelSize.SMALL,
+        4130000000,
     )
     """4.13 GB"""
 
@@ -108,6 +119,7 @@ class Models(enum.Enum):
         "https://huggingface.co/bartowski/Phi-3-medium-128k-instruct-GGUF/resolve/main/Phi-3-medium-128k-instruct-Q4_K_M.gguf",
         "Phi-3-medium-128k-instruct-Q4_K_M.gguf",
         ModelSize.MEDIUM,
+        8570000000,
     )
     """8.57 GB"""
 
@@ -162,6 +174,65 @@ class ErrMsg(enum.Enum):
         import string
 
         return string.Template(self.value).safe_substitute(**kwargs)
+
+
+class ProgressReporter:
+    def __init__(self, items: list[int]):
+        self.items: list[int] = items
+        self.total_size: int = sum(size for size in self.items)
+        self.downloaded_sizes: list[int] = [0] * len(self.items)
+        self.current_total_downloaded: int = 0
+        self.last_reported_percentage: int = 0
+        self.size_history: list[int] = []
+
+    def update_total_size(self):
+        self.total_size = sum(size for size in self.items)
+
+    def add_item(self, item: int):
+        """Add a new item to the tracking list."""
+        self.items.append(item)
+        self.downloaded_sizes.append(0)  # Initialize downloaded size for new item
+        self.update_total_size()
+
+    def update_item_size(self, index: int, new_size: int):
+        """Update the size of an existing item."""
+        if index < len(self.items):
+            self.items[index] = new_size
+            self.update_total_size()
+
+    def update_progress(self, index: int, size: int):
+        if index >= len(self.items):
+            return  # Avoid index errors
+
+        if size <= self.items[index]:
+            change_in_size = size - self.downloaded_sizes[index]
+            self.downloaded_sizes[index] = size
+        else:
+            max_size = self.items[index]
+            change_in_size = max_size - self.downloaded_sizes[index]
+            self.downloaded_sizes[index] = max_size
+
+        self.current_total_downloaded += change_in_size
+        self.size_history.append(self.current_total_downloaded)
+
+        if self.should_update():
+            percent_complete = int(
+                (self.current_total_downloaded / self.total_size) * 100
+            )
+            if percent_complete != self.last_reported_percentage:
+                self.last_reported_percentage = percent_complete
+                print(percent_complete)
+
+        if len(self.size_history) > 3:
+            self.size_history.pop(0)
+
+    def should_update(self):
+        if len(self.size_history) < 3:
+            return True
+        return (
+            self.size_history[-1] > self.size_history[-3]
+            and self.size_history[-2] > self.size_history[-3]
+        )
 
 
 def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) -> str:
@@ -295,6 +366,7 @@ def get_capabilities(
     dst: pathlib.Path,
     llamafile_path: pathlib.Path,
     windows_fallback: bool,
+    progress_reporter: ProgressReporter | None = None,
 ) -> Model:
     import subprocess
     import sys
@@ -320,14 +392,27 @@ def get_capabilities(
     # failure:
     # "tinyBLAS not supported"
 
-    download(
-        curl_path,
-        dst,
-        Models.TEST.value.url,
-        test_model_path,
-        windows_fallback=windows_fallback,
-        resume_flag=True,
-    )
+    if progress_reporter:
+        download(
+            curl_path,
+            dst,
+            Models.TEST.value.url,
+            test_model_path,
+            windows_fallback=windows_fallback,
+            resume_flag=True,
+            progress_reporter=progress_reporter,
+            index=1,
+            file_size=progress_reporter.items[1],
+        )
+    else:
+        download(
+            curl_path,
+            dst,
+            Models.TEST.value.url,
+            test_model_path,
+            windows_fallback=windows_fallback,
+            resume_flag=True,
+        )
 
     try:
         output: str = subprocess.check_output(
@@ -441,29 +526,89 @@ def resolve_github(
     return download_url
 
 
-def run_cmd(command: str, return_output: bool = False) -> str | None:
-    import subprocess
-    import sys
+def parse_curl_progress(line: bytes):
+    # Match the progress output of curl
+    match = PROGRESS_REGEX.search(line)
+    if match:
+        decoded_match = int(match.group(1).decode("utf-8"))
+        if decoded_match == 100:
+            return 0
+        else:
+            return decoded_match
+    return None
 
-    string_command = "`" + command + "`"
-    try:
-        print(string_command)
-        result = subprocess.run(
-            command,
-            shell=True,
-            executable=SHELL,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        if return_output:
-            return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        print(
-            ErrMsg.RUN_COMMAND_FAILED.format(command=e.cmd, stderr=e.stderr),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+
+def run_cmd(
+    command: str,
+    return_output: bool = False,
+    progress_reporter: ProgressReporter | None = None,
+    index: int | None = None,
+    file_size: int | None = None,
+) -> str | None:
+    import subprocess
+
+    # Detect if the command is using curl and specifically a download command
+    # print(f"`{command}`")
+    if (
+        "curl" in command
+        and progress_reporter is not None
+        and file_size is not None
+        and index is not None
+    ):
+        try:
+            # Execute the curl command and stream the output
+            with subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+                executable=SHELL,
+            ) as process:
+                partial_line = b""  # Buffer to store incomplete lines
+                while True:
+                    chunk = process.stderr.read(512)  # type: ignore
+                    if not chunk:
+                        break
+                    partial_line += chunk
+                    if b"\r" in partial_line:
+                        last_cr = partial_line.rfind(b"\r")
+                        line, partial_line = (
+                            partial_line[:last_cr],
+                            partial_line[last_cr + 1 :],
+                        )
+                        check = parse_curl_progress(line)
+                        if check is not None:
+                            incremental_size = int((check / 100.0) * file_size)
+                            if incremental_size > 0:
+                                progress_reporter.update_progress(
+                                    index, incremental_size
+                                )
+
+                process.wait()  # Wait for the process to complete
+
+                if process.returncode == 0:
+                    progress_reporter.update_progress(0, file_size)
+                else:
+                    error_msg = process.stderr.read().decode("utf-8")  # type: ignore
+                    print(f"Failed to download: {error_msg}", file=sys.stderr)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to download: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                executable=SHELL,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            if return_output:
+                return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed: {command}, Error: {e.stderr}", file=sys.stderr)
+            sys.exit(1)
 
 
 def download(
@@ -474,6 +619,9 @@ def download(
     windows_fallback: bool = False,
     resume_flag: bool = False,
     user_agent: str = "",
+    progress_reporter: ProgressReporter | None = None,
+    index: int | None = None,
+    file_size: int | None = None,
 ) -> str | None:
     import tempfile
 
@@ -485,11 +633,11 @@ def download(
 
     if not windows_fallback:
         if resume_flag:
-            command = f'{str(curl_path)} -C - -ZL "{url}" -o "{destination}"'
+            command = f'{str(curl_path)} -# -C - -L "{url}" -o "{destination}"'
         else:
             if dst and dst.exists():
                 dst.unlink()
-            command = f'{str(curl_path)} -ZL "{url}" -o "{destination}"'
+            command = f'{str(curl_path)} -# -L "{url}" -o "{destination}"'
         if user_agent:
             command += f' -A "{user_agent}"'
     else:
@@ -498,7 +646,12 @@ def download(
         destination = drv_ltr + ":" + destination[2:].replace("/", "\\")
         command = f'bitsadmin /transfer 1 "{url}" "{destination}"\''
 
-    run_cmd(command)
+    run_cmd(
+        command,
+        progress_reporter=progress_reporter,
+        index=index,
+        file_size=file_size,
+    )
 
     if not dst:
         import os
@@ -526,7 +679,15 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     bins = dst / "bin"
 
     # create the directories
-    models.mkdir(parents=True, exist_ok=True)
+    if not models.exists():
+        models.mkdir(parents=True, exist_ok=True)
+        models_dir_size: int | None = None
+    else:
+        models_dir_size: int | None = sum(
+            file.stat().st_size for file in models.rglob("*") if file.is_file()
+        )
+        if models_dir_size < 2000000000:
+            models_dir_size = None  # If directory size less than 2 GB, assume models don't need to be updated
     bins.mkdir(parents=True, exist_ok=True)
 
     # Bootstrap CURL
@@ -538,7 +699,8 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         command = f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest {Files.CURL.value.url} -OutFile {curl_path}"
     else:
         command = f'{shutil.which("curl")} -L "{Files.CURL.value.url}" -o "{curl_path}"'
-    run_cmd(command)
+    if not curl_path.exists():
+        run_cmd(command)
 
     if os_name != "Windows":
         # make curl executable
@@ -589,6 +751,15 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         print(ErrMsg.CURL_RETRIEVAL_FAILED.value, file=sys.stderr)
         sys.exit(1)
 
+    progress_reporter = ProgressReporter(
+        items=[
+            Files.LLAMAFILE.value.size,
+            Models.TEST.value.real_size,
+            Files.AISERVER.value.size,
+            Models.MINI.value.real_size if models_dir_size is None else 0,
+        ]
+    )
+
     # download llamafile
     llamafile_url = resolve_github(
         curl_path,
@@ -599,11 +770,14 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     )
     llamafile_path = (bins / Files.LLAMAFILE.value.file).relative_to(dst)
     download(
-        curl_path,
-        dst,
-        llamafile_url,
-        llamafile_path,
+        curl_path=curl_path,
+        cwd=dst,
+        url=llamafile_url,
+        dst=llamafile_path,
         windows_fallback=windows_fallback,
+        progress_reporter=progress_reporter,
+        index=0,
+        file_size=progress_reporter.items[0],
     )
 
     if os_name != "Windows":
@@ -617,10 +791,15 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
             dst,
             llamafile_path,
             windows_fallback,
+            progress_reporter,
         )
     else:
-        print("感谢您在中国使用RimWorldAI！huggingface.co无法访问，因此我们将使用modelscope.cn。遗憾的是，截至2024年6月19日，只有Phi-3-mini可用。感谢您的耐心等待，我们正在等待Phi-3-small和Phi-3-medium的上线。")
+        # print(
+        #     "感谢您在中国使用RimWorldAI！huggingface.co无法访问，因此我们将使用modelscope.cn。遗憾的是，截至2024年6月19日，只有Phi-3-mini可用。感谢您的耐心等待，我们正在等待Phi-3-small和Phi-3-medium的上线。",
+        #     file=sys.stderr,
+        # )
         model: Model = Models.MINI_CHINA.value
+    progress_reporter.update_item_size(2, model.real_size)
     model_path = (models / model.file).relative_to(dst)
 
     # download the AI Server
@@ -643,6 +822,9 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         aiserver_url,
         aiserver_path,
         windows_fallback=windows_fallback,
+        progress_reporter=progress_reporter,
+        index=2,
+        file_size=progress_reporter.items[2],
     )
 
     # pin the server version at "./.version"
@@ -660,9 +842,12 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         model_path,
         windows_fallback=windows_fallback,
         resume_flag=True,
+        progress_reporter=progress_reporter,
+        index=3,
+        file_size=progress_reporter.items[3],
     )
 
-    print("RWAI bootstrap successful!")
+    # print("RWAI bootstrap successful!")
 
 
 def main():

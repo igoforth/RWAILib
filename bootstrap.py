@@ -235,6 +235,41 @@ class ProgressReporter:
         )
 
 
+def platform_path(posix_path: pathlib.Path):
+    if platform.system().lower() == "windows":
+        import pathlib
+
+        # Convert the PosixPath to a string
+        path_str = str(posix_path)
+
+        # Handle relative paths by checking if the path starts with '/'
+        if path_str.startswith("/"):
+            parts = path_str.lstrip("/").split("/", 1)
+            if (
+                len(parts[0]) == 1 and parts[0].isalpha()
+            ):  # Check if the first part is a single letter (drive letter)
+                drive_letter = parts[0].upper() + ":"
+                rest_of_path = parts[1] if len(parts) > 1 else ""
+            else:
+                drive_letter = ""
+                rest_of_path = path_str
+        else:
+            drive_letter = ""
+            rest_of_path = path_str
+
+        # Replace forward slashes with backslashes
+        windows_path_str = rest_of_path.replace("/", "\\")
+
+        # Combine the drive letter and the rest of the path
+        if drive_letter:
+            windows_path = pathlib.Path(drive_letter + "\\" + windows_path_str)
+        else:
+            windows_path = pathlib.Path(windows_path_str)
+
+        return windows_path
+    return posix_path
+
+
 def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) -> str:
     import json
     import sys
@@ -276,8 +311,8 @@ def get_total_ram() -> int:
     if os_name == "Windows":
         command = "wmic ComputerSystem get TotalPhysicalMemory"
         output = run_cmd(command, return_output=True)
-        if output:
-            return int(output.split("\n")[1].strip())
+        if type(output) is not bool and output[0] is True:
+            return int(output[1].split("\n")[1].strip())
         else:
             print(ErrMsg.RAM_RETRIEVAL_FAILED_WINDOWS.value, file=sys.stderr)
             return 4000000000
@@ -294,8 +329,8 @@ def get_total_ram() -> int:
     elif os_name == "Darwin":
         command = "sysctl hw.memsize"
         output = run_cmd(command, return_output=True)
-        if output:
-            return int(output.split()[1])
+        if type(output) is not bool and output[0] is True:
+            return int(output[1].split()[1])
         else:
             print(ErrMsg.RAM_RETRIEVAL_FAILED_DARWIN.value, file=sys.stderr)
             return 4000000000
@@ -544,7 +579,7 @@ def run_cmd(
     progress_reporter: ProgressReporter | None = None,
     index: int | None = None,
     file_size: int | None = None,
-) -> str | None:
+) -> tuple[bool, str] | bool:
     import subprocess
 
     # Detect if the command is using curl and specifically a download command
@@ -588,9 +623,11 @@ def run_cmd(
 
                 if process.returncode == 0:
                     progress_reporter.update_progress(0, file_size)
+                    return True
                 else:
                     error_msg = process.stderr.read().decode("utf-8")  # type: ignore
                     print(f"Failed to download: {error_msg}", file=sys.stderr)
+                    return False
         except subprocess.CalledProcessError as e:
             print(f"Failed to download: {e}", file=sys.stderr)
             sys.exit(1)
@@ -604,11 +641,36 @@ def run_cmd(
                 text=True,
                 check=True,
             )
-            if return_output:
-                return result.stdout.strip()
+            if result.returncode != 0:
+                if return_output:
+                    return (False, result.stdout.strip())
+                return False
+            else:
+                if return_output:
+                    return (True, result.stdout.strip())
+                return True
         except subprocess.CalledProcessError as e:
             print(f"Command failed: {command}, Error: {e.stderr}", file=sys.stderr)
             sys.exit(1)
+
+
+def construct_command(
+    curl_path: pathlib.Path,
+    url: str,
+    destination: str,
+    dst: pathlib.Path | None = None,
+    resume_flag: bool = False,
+    user_agent: str = "",
+):
+    if resume_flag:
+        command = f'{str(curl_path)} -# -C - -L --ssl-revoke-best-effort "{url}" -o "{destination}"'
+    else:
+        if dst and dst.exists():
+            dst.unlink()
+        command = f'{str(curl_path)} -# -L --ssl-revoke-best-effort "{url}" -o "{destination}"'
+    if user_agent:
+        command += f' -A "{user_agent}"'
+    return command
 
 
 def download(
@@ -625,6 +687,8 @@ def download(
 ) -> str | None:
     import tempfile
 
+    destination: pathlib.Path | str
+
     # if no destination is provided, caller wants the contents of the file
     if not dst:
         destination = str(pathlib.Path(tempfile.NamedTemporaryFile(delete=False).name))
@@ -632,26 +696,32 @@ def download(
         destination = str(dst)
 
     if not windows_fallback:
-        if resume_flag:
-            command = f'{str(curl_path)} -# -C - -L "{url}" -o "{destination}"'
-        else:
-            if dst and dst.exists():
-                dst.unlink()
-            command = f'{str(curl_path)} -# -L "{url}" -o "{destination}"'
-        if user_agent:
-            command += f' -A "{user_agent}"'
+        command = construct_command(
+            curl_path, url, destination, dst, resume_flag, user_agent
+        )
     else:
-        destination = str(pathlib.Path(destination).resolve())
-        drv_ltr = (re.search(r"^/(\w)/.*$", destination)).group(1)  # type: ignore
-        destination = drv_ltr + ":" + destination[2:].replace("/", "\\")
+        destination = pathlib.Path(destination).resolve()
+        destination = platform_path(destination)
         command = f'bitsadmin /transfer 1 "{url}" "{destination}"'
 
-    run_cmd(
+    result = run_cmd(
         command,
         progress_reporter=progress_reporter,
         index=index,
         file_size=file_size,
     )
+    if type(result) is bool and result is False and windows_fallback is False:
+        # destination could have been misconstructed, try with platform path
+        destination = str(platform_path(pathlib.Path(destination).resolve()))
+        command = construct_command(
+            curl_path, url, destination, dst, resume_flag, user_agent
+        )
+        result = run_cmd(
+            command,
+            progress_reporter=progress_reporter,
+            index=index,
+            file_size=file_size,
+        )
 
     if not dst:
         import os
@@ -674,7 +744,7 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     import subprocess
     import sys
 
-    windows_fallback: bool = False  # use powershell download if curl fails
+    windows_fallback: bool = False  # use bitsadmin if curl fails
     models = dst / "models"
     bins = dst / "bin"
 
@@ -710,7 +780,12 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     # try using new curl
     try:
         subprocess.check_call(
-            [curl_path, "-ZL", '"https://captive.apple.com/hotspot-detect.html"'],
+            [
+                curl_path,
+                "-L",
+                "--ssl-revoke-best-effort",  # some AV will do MITM, this prevent curl from dying
+                '"https://captive.apple.com/hotspot-detect.html"',
+            ],
             shell=True,
             executable=SHELL,
             text=True,
@@ -720,17 +795,15 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     except subprocess.CalledProcessError:
         backup_curl = "curl.exe" if os_name == "Windows" else "curl"
         curl_path = shutil.which(backup_curl)
-        if curl_path:
-            curl_path = pathlib.Path(curl_path)
-        else:
-            curl_path = None
         if curl_path and os_name == "Windows":
-            # try using curl
+            # use windows curl with Windows paths
+            curl_path = platform_path(pathlib.Path(backup_curl).resolve())
             try:
                 subprocess.check_call(
                     [
                         curl_path,
-                        "-ZL",
+                        "-L",
+                        "--ssl-revoke-best-effort",  # some AV will do MITM, this prevents curl from dying
                         '"https://captive.apple.com/hotspot-detect.html"',
                     ],
                     shell=True,
@@ -741,9 +814,13 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
                 )
             except subprocess.CalledProcessError:
                 windows_fallback = True
+        elif curl_path:
+            curl_path = pathlib.Path(curl_path)
         elif not curl_path and os_name == "Windows":
+            # use bitsadmin
             windows_fallback = True
         elif not curl_path:
+            # irrecoverable
             print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
             sys.exit(1)
 

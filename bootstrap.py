@@ -170,10 +170,22 @@ class ErrMsg(enum.Enum):
     UNKNOWN_ERROR = "An unknown error occurred. Traceback:\n$traceback"
     """Error message when an unknown error occurs."""
 
+    def __init__(self, _):
+        # Set the index of each enum using its order
+        self.index = self._generate_next_index()
+
+    _index_generator: int = 2  # Class attribute to keep track of indices
+
     def format(self, **kwargs: str):
         import string
 
         return string.Template(self.value).safe_substitute(**kwargs)
+
+    @classmethod
+    def _generate_next_index(cls):
+        index = cls._index_generator
+        cls._index_generator += 1
+        return index
 
 
 class ProgressReporter:
@@ -284,7 +296,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.RESPONSE_ERROR.index)
     else:
         response = response.strip()
     if response == "":
@@ -292,7 +304,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.RESPONSE_ERROR.index)
 
     try:
         return json.loads(response)["tag_name"]
@@ -301,7 +313,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.PARSE_RESPONSE_ERROR.format(api_url=api_url, error=e.msg),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.PARSE_RESPONSE_ERROR.index)
 
 
 def get_total_ram() -> int:
@@ -493,10 +505,10 @@ def get_capabilities(
 
     except subprocess.CalledProcessError:
         print(ErrMsg.LLAMAFILE_EXECUTION_FAILED.value, file=sys.stderr)
-        sys.exit(1)
-    except Exception:
+        sys.exit(ErrMsg.LLAMAFILE_EXECUTION_FAILED.index)
+    except UnicodeDecodeError:
         print(ErrMsg.LLAMAFILE_DECODE_FAILED.value, file=sys.stderr)
-        sys.exit(1)
+        sys.exit(ErrMsg.LLAMAFILE_DECODE_FAILED.index)
 
 
 def resolve_github(
@@ -527,7 +539,7 @@ def resolve_github(
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.RESPONSE_ERROR.index)
     else:
         response = response.strip()
     if response == "":
@@ -535,7 +547,7 @@ def resolve_github(
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.RESPONSE_ERROR.index)
 
     # parse the response
     try:
@@ -549,14 +561,14 @@ def resolve_github(
 
         if not download_url:
             print(ErrMsg.RELEASE_NOT_FOUND.format(repo=repo), file=sys.stderr)
-            sys.exit(1)
+            sys.exit(ErrMsg.RELEASE_NOT_FOUND.index)
 
     except Exception as e:
         print(
             ErrMsg.UNKNOWN_ERROR.format(traceback=str(e)),
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(ErrMsg.UNKNOWN_ERROR.index)
 
     return download_url
 
@@ -630,7 +642,7 @@ def run_cmd(
                     return False
         except subprocess.CalledProcessError as e:
             print(f"Failed to download: {e}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(ErrMsg.RUN_COMMAND_FAILED.index)
     else:
         try:
             result = subprocess.run(
@@ -651,7 +663,7 @@ def run_cmd(
                 return True
         except subprocess.CalledProcessError as e:
             print(f"Command failed: {command}, Error: {e.stderr}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(ErrMsg.RUN_COMMAND_FAILED.index)
 
 
 def construct_command(
@@ -812,11 +824,11 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         elif not curl_path:
             # irrecoverable
             print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
-            sys.exit(1)
+            sys.exit(ErrMsg.CURL_PREPARATION_FAILED.index)
 
     if not curl_path:
         print(ErrMsg.CURL_RETRIEVAL_FAILED.value, file=sys.stderr)
-        sys.exit(1)
+        sys.exit(ErrMsg.CURL_RETRIEVAL_FAILED.index)
 
     progress_reporter = ProgressReporter(
         items=[

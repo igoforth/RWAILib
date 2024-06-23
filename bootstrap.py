@@ -304,201 +304,6 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
         sys.exit(9)
 
 
-def get_total_ram() -> int:
-    """Returns the total amount of RAM in bytes."""
-    import sys
-
-    if os_name == "Windows":
-        command = "wmic ComputerSystem get TotalPhysicalMemory"
-        output = run_cmd(command, return_output=True)
-        if type(output) is not bool and output[0] is True:
-            return int(output[1].split("\n")[1].strip())
-        else:
-            print(ErrMsg.RAM_RETRIEVAL_FAILED_WINDOWS.value, file=sys.stderr)
-            return 4000000000
-
-    elif os_name == "Linux":
-        with open("/proc/meminfo", "r") as f:
-            meminfo = f.read()
-        mem_total_line = next(
-            line for line in meminfo.split("\n") if line.startswith("MemTotal")
-        )
-        mem_total_kb = int(mem_total_line.split()[1])
-        return mem_total_kb * 1024
-
-    elif os_name == "Darwin":
-        command = "sysctl hw.memsize"
-        output = run_cmd(command, return_output=True)
-        if type(output) is not bool and output[0] is True:
-            return int(output[1].split()[1])
-        else:
-            print(ErrMsg.RAM_RETRIEVAL_FAILED_DARWIN.value, file=sys.stderr)
-            return 4000000000
-
-    else:
-        raise NotImplementedError(ErrMsg.PLATFORM_UNSUPPORTED.format(os_name=os_name))
-
-
-# this is going to be the worst heuristic I've ever made
-def estimate_vram(gpu_model: str) -> ModelSize | None:
-    import re
-
-    gpu_model = gpu_model.strip()
-    # gpu_r = re.compile(
-    #     r"^.*(?P<family>RX|RTX|GTX) (?P<model>\w+).*compute capability (?P<cc>[\d\.]+).*$",
-    #     re.IGNORECASE,
-    # )
-    gpu_r = re.compile(
-        r"^Device 0.*(?P<family>RX|RTX|GTX) (?P<model>\w+).*$",
-        re.IGNORECASE,
-    )
-    mdl_lst = ["50", "60", "70", "80", "90"]
-    gpu_model = gpu_model.lower()
-
-    match = gpu_r.match(gpu_model)
-    if not match:
-        return None
-
-    family = match.group("family").upper()
-    model = match.group("model")
-    # compute_capability = match.group("cc")
-
-    # Phi-3-medium-128k-instruct-Q4_K_M.gguf 8.56GB
-    # Phi-3-small-128k-instruct-Q4_K_M.gguf will be ~4.51GB
-    # Phi-3-mini-128k-instruct-Q4_K_M.gguf 2.34GB
-
-    nvidia_vram = {
-        "50": ModelSize.MINI,  # "2GB to 4GB",
-        "60": ModelSize.MINI,  # "3GB to 6GB",
-        "70": ModelSize.SMALL,  # "8GB",
-        "80": ModelSize.MEDIUM,  # "8GB to 11GB",
-        "90": ModelSize.MEDIUM,  # "24GB",
-    }
-
-    amd_vram = {
-        "50": ModelSize.MINI,  # "2GB to 4GB",
-        "60": ModelSize.MINI,  # "2GB to 6GB",
-        "70": ModelSize.SMALL,  # "4GB to 12GB",
-        "80": ModelSize.MEDIUM,  # "8GB to 16GB",
-        "90": ModelSize.MEDIUM,  # "16GB",
-        "95": ModelSize.MEDIUM,  # AMD uses 95 too apparently
-    }
-
-    if family == "GTX" or family == "RTX":
-        for mdl in mdl_lst:
-            if mdl in model:
-                return nvidia_vram.get(mdl, ModelSize.MINI)
-    elif family == "RX":
-        for mdl in mdl_lst:
-            if mdl in model:
-                return amd_vram.get(mdl, ModelSize.MINI)
-
-    return None
-
-
-def get_capabilities(
-    curl_path: pathlib.Path,
-    dst: pathlib.Path,
-    llamafile_path: pathlib.Path,
-    windows_fallback: bool,
-    progress_reporter: ProgressReporter | None = None,
-) -> Model:
-    import subprocess
-    import sys
-
-    models: pathlib.Path = dst / "models"
-    test_model_path: pathlib.Path = (models / Models.TEST.value.file).relative_to(dst)
-    llamafile_test_params_list: list[str] = [
-        "-ngl",
-        "9999",
-        "-m",
-        str(test_model_path),
-        "--cli",
-    ]
-
-    def finish(mdl: ModelSize) -> Model:
-        if test_model_path.exists():
-            test_model_path.unlink()
-        return next(model for model in Models if model.value.size == mdl).value
-
-    # success:
-    # "Apple Metal GPU support successfully loaded"
-    # "welcome to CUDA SDK with tinyBLAS"
-    # failure:
-    # "tinyBLAS not supported"
-
-    if progress_reporter:
-        download(
-            curl_path,
-            dst,
-            Models.TEST.value.url,
-            test_model_path,
-            windows_fallback=windows_fallback,
-            resume_flag=True,
-            progress_reporter=progress_reporter,
-            index=1,
-            file_size=progress_reporter.items[1],
-        )
-    else:
-        download(
-            curl_path,
-            dst,
-            Models.TEST.value.url,
-            test_model_path,
-            windows_fallback=windows_fallback,
-            resume_flag=True,
-        )
-
-    try:
-        output: str = subprocess.check_output(
-            [llamafile_path, *llamafile_test_params_list],
-            stderr=subprocess.STDOUT,
-        ).decode("utf-8")
-        if output != "":
-            # ggml_metal_init: found device: Apple M2 Pro
-            # ggml_init_cublas: no CUDA devices found, CUDA will be disabled
-            # ggml_init_cublas: found * ROCm devices:
-            # Device 0: Radeon RX 7900 XTX, compute capability 11.0, VMM: no
-            # ggml_cuda_init: found * CUDA devices:
-            # Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes
-            # Device 0: NVIDIA GeForce GTX 1060, compute capability 6.1
-            # 7900 xtx: 24gb vram
-            # 4090: 24gb vram
-            # 3060: 12gb vram, cc 8.6
-            # 1080 Ti: 11gb vram, but same cc as 1060
-            # 1060: 6gb vram
-            # should make biggest model fit in 6gb vram?
-
-            # ggml_metal_init (Metal)
-            # ggml_init_cublas (AMD)
-            # ggml_cuda_init (Nvidia)
-            # default (CPU)
-
-            if "ggml_metal_init" in output:
-                # just to be performant. optimize later
-                return finish(ModelSize.MINI)
-            else:
-                lines: list[str] = output.split("\n")
-                result = None
-                for line in lines:
-                    result = estimate_vram(line)
-                    if result is not None:
-                        break
-                if result is None:
-                    return finish(ModelSize.MINI)
-                else:
-                    return finish(result)
-        else:
-            raise Exception
-
-    except subprocess.CalledProcessError:
-        print(ErrMsg.LLAMAFILE_EXECUTION_FAILED.value, file=sys.stderr)
-        sys.exit(8)
-    except UnicodeDecodeError:
-        print(ErrMsg.LLAMAFILE_DECODE_FAILED.value, file=sys.stderr)
-        sys.exit(7)
-
-
 def resolve_github(
     curl_path: pathlib.Path,
     cwd: pathlib.Path,
@@ -728,7 +533,7 @@ def download(
         return None
 
 
-def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
+def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
     import os
     import shutil
     import subprocess
@@ -741,13 +546,6 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
     # create the directories
     if not models.exists():
         models.mkdir(parents=True, exist_ok=True)
-        models_dir_size: int | None = None
-    else:
-        models_dir_size: int | None = sum(
-            file.stat().st_size for file in models.rglob("*") if file.is_file()
-        )
-        if models_dir_size < 2000000000:
-            models_dir_size = None  # If directory size less than 2 GB, assume models don't need to be updated
     bins.mkdir(parents=True, exist_ok=True)
 
     # Bootstrap CURL
@@ -823,7 +621,7 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
             Files.LLAMAFILE.value.size,
             Models.TEST.value.real_size,
             Files.AISERVER.value.size,
-            Models.MINI.value.real_size if models_dir_size is None else 0,
+            model.real_size,
         ]
     )
 
@@ -851,22 +649,7 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         # make llamafile executable
         os.chmod(llamafile_path, 0o755)
 
-    # determine model to download
-    if not use_chinese_domains:
-        model: Model = get_capabilities(
-            curl_path,
-            dst,
-            llamafile_path,
-            windows_fallback,
-            progress_reporter,
-        )
-    else:
-        # print(
-        #     "感谢您在中国使用RimWorldAI！huggingface.co无法访问，因此我们将使用modelscope.cn。遗憾的是，截至2024年6月19日，只有Phi-3-mini可用。感谢您的耐心等待，我们正在等待Phi-3-small和Phi-3-medium的上线。",
-        #     file=sys.stderr,
-        # )
-        model: Model = Models.MINI_CHINA.value
-    progress_reporter.update_item_size(2, model.real_size)
+    # model related information
     model_path = (models / model.file).relative_to(dst)
 
     # download the AI Server
@@ -921,6 +704,8 @@ def main():
     import argparse
     import os
 
+    model: Model
+
     parser = argparse.ArgumentParser(description="A bootstrapper for RimWorldAI")
     parser.add_argument(
         "--language",
@@ -958,19 +743,40 @@ def main():
         type=str,
         required=False,
     )
+    parser.add_argument(
+        "--modelsize",
+        choices=["CUSTOM", "MINI", "SMALL", "MEDIUM"],
+        default=None,
+        help="The model size chosen by heuristics in the RimWorldAI Core mod",
+        type=str,
+        required=False,
+    )
     args = parser.parse_args()
 
     if args.language is None:
         args.language = "PLACEHOLDER_STRING_LANGUAGE"
+    if args.modelsize is None:
+        args.modelsize = "PLACEHOLDER_STRING_MODELSIZE"
 
     # convert relative to absolute path
     directory = pathlib.Path(os.getcwd()).resolve()
 
     # determine region
-    use_chinese_domains = True if "Chinese" in args.language else False
+    use_chinese_domains: bool = True if "Chinese" in args.language else False
+
+    # determine model size
+    model = (
+        Models.MINI_CHINA.value
+        if use_chinese_domains == True
+        else (
+            Models.MEDIUM.value
+            if args.modelsize == "MEDIUM"
+            else Models.SMALL.value if args.modelsize == "SMALL" else Models.MINI.value
+        )
+    )
 
     # bootstrap
-    bootstrap(directory, use_chinese_domains)
+    bootstrap(directory, model, use_chinese_domains)
 
 
 if __name__ == "__main__":

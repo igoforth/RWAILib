@@ -170,22 +170,10 @@ class ErrMsg(enum.Enum):
     UNKNOWN_ERROR = "An unknown error occurred. Traceback:\n$traceback"
     """Error message when an unknown error occurs."""
 
-    def __init__(self, _):
-        # Set the index of each enum using its order
-        self.index = self._generate_next_index()
-
-    _index_generator: int = 2  # Class attribute to keep track of indices
-
     def format(self, **kwargs: str):
         import string
 
         return string.Template(self.value).safe_substitute(**kwargs)
-
-    @classmethod
-    def _generate_next_index(cls):
-        index = cls._index_generator
-        cls._index_generator += 1
-        return index
 
 
 class ProgressReporter:
@@ -248,7 +236,7 @@ class ProgressReporter:
 
 
 def platform_path(posix_path: pathlib.Path):
-    if platform.system().lower() == "windows":
+    if os_name == "Windows":
         import pathlib
 
         # Convert the PosixPath to a string
@@ -296,7 +284,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.RESPONSE_ERROR.index)
+        sys.exit(14)
     else:
         response = response.strip()
     if response == "":
@@ -304,7 +292,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.RESPONSE_ERROR.index)
+        sys.exit(14)
 
     try:
         return json.loads(response)["tag_name"]
@@ -313,7 +301,7 @@ def get_github_version(curl_path: pathlib.Path, cwd: pathlib.Path, repo: str) ->
             ErrMsg.PARSE_RESPONSE_ERROR.format(api_url=api_url, error=e.msg),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.PARSE_RESPONSE_ERROR.index)
+        sys.exit(9)
 
 
 def get_total_ram() -> int:
@@ -505,10 +493,10 @@ def get_capabilities(
 
     except subprocess.CalledProcessError:
         print(ErrMsg.LLAMAFILE_EXECUTION_FAILED.value, file=sys.stderr)
-        sys.exit(ErrMsg.LLAMAFILE_EXECUTION_FAILED.index)
+        sys.exit(8)
     except UnicodeDecodeError:
         print(ErrMsg.LLAMAFILE_DECODE_FAILED.value, file=sys.stderr)
-        sys.exit(ErrMsg.LLAMAFILE_DECODE_FAILED.index)
+        sys.exit(7)
 
 
 def resolve_github(
@@ -539,7 +527,7 @@ def resolve_github(
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.RESPONSE_ERROR.index)
+        sys.exit(14)
     else:
         response = response.strip()
     if response == "":
@@ -547,7 +535,7 @@ def resolve_github(
             ErrMsg.RESPONSE_ERROR.format(api_url=api_url),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.RESPONSE_ERROR.index)
+        sys.exit(14)
 
     # parse the response
     try:
@@ -561,14 +549,14 @@ def resolve_github(
 
         if not download_url:
             print(ErrMsg.RELEASE_NOT_FOUND.format(repo=repo), file=sys.stderr)
-            sys.exit(ErrMsg.RELEASE_NOT_FOUND.index)
+            sys.exit(13)
 
     except Exception as e:
         print(
             ErrMsg.UNKNOWN_ERROR.format(traceback=str(e)),
             file=sys.stderr,
         )
-        sys.exit(ErrMsg.UNKNOWN_ERROR.index)
+        sys.exit(16)
 
     return download_url
 
@@ -642,7 +630,7 @@ def run_cmd(
                     return False
         except subprocess.CalledProcessError as e:
             print(f"Failed to download: {e}", file=sys.stderr)
-            sys.exit(ErrMsg.RUN_COMMAND_FAILED.index)
+            sys.exit(15)
     else:
         try:
             result = subprocess.run(
@@ -663,7 +651,7 @@ def run_cmd(
                 return True
         except subprocess.CalledProcessError as e:
             print(f"Command failed: {command}, Error: {e.stderr}", file=sys.stderr)
-            sys.exit(ErrMsg.RUN_COMMAND_FAILED.index)
+            sys.exit(15)
 
 
 def construct_command(
@@ -824,11 +812,11 @@ def bootstrap(dst: pathlib.Path, use_chinese_domains: bool):
         elif not curl_path:
             # irrecoverable
             print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
-            sys.exit(ErrMsg.CURL_PREPARATION_FAILED.index)
+            sys.exit(3)
 
     if not curl_path:
         print(ErrMsg.CURL_RETRIEVAL_FAILED.value, file=sys.stderr)
-        sys.exit(ErrMsg.CURL_RETRIEVAL_FAILED.index)
+        sys.exit(4)
 
     progress_reporter = ProgressReporter(
         items=[

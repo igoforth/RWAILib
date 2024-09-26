@@ -34,15 +34,15 @@ class Files(enum.Enum):
     import re
 
     CURL = File(
-        file="curl.com" if os_name == "Windows" else "curl",
+        file="curl.exe" if os_name == "Windows" else "curl",
         name=re.compile(r"curl\.exe" if os_name == "Windows" else r"curl"),
         size=6300000,
-        url="https://cosmo.zip/pub/cosmos/bin/curl",
+        url="https://cosmo.zip/pub/cosmos/v/3.9.2/bin/curl",
     )
     """6.3 MB"""
 
     LLAMAFILE = File(
-        file="llamafile.com" if os_name == "Windows" else "llamafile",
+        file="llamafile.exe" if os_name == "Windows" else "llamafile",
         name=re.compile(r"llamafile-\d+\.\d+\.\d+"),
         size=34600000,
         repo="Mozilla-Ocho/llamafile",
@@ -379,7 +379,7 @@ def parse_curl_progress(line: bytes):
 
 
 def run_cmd(
-    command: str,
+    command: str | list[str],
     return_output: bool = False,
     progress_reporter: ProgressReporter | None = None,
     index: int | None = None,
@@ -446,14 +446,12 @@ def run_cmd(
                 text=True,
                 check=True,
             )
-            if result.returncode != 0:
-                if return_output:
-                    return (False, result.stdout.strip())
-                return False
-            else:
-                if return_output:
-                    return (True, result.stdout.strip())
-                return True
+            stdout = result.stdout.strip()
+            status = True if result.returncode == 0 else False
+            if return_output:
+                return (status, stdout)
+            return status
+
         except subprocess.CalledProcessError as e:
             print(f"Command failed: {command}, Error: {e.stderr}", file=sys.stderr)
             sys.exit(15)
@@ -531,8 +529,23 @@ def download(
         return None
 
 
-def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
+def ensure_permissions(exe_path: str | pathlib.Path):
     import os
+
+    if os_name == "Windows":
+        # remove Mark of the Web, which causes unreliable execution
+        command = f"Unblock-File -Path '{exe_path}'"
+        run_cmd(command)
+
+        # Set integrity level to Medium
+        command = f"icacls {exe_path} /setintegritylevel Medium"
+        run_cmd(command)
+    else:
+        # make curl executable
+        os.chmod(exe_path, 0o755)
+
+
+def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
     import shutil
     import subprocess
     import sys
@@ -546,71 +559,64 @@ def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
         models.mkdir(parents=True, exist_ok=True)
     bins.mkdir(parents=True, exist_ok=True)
 
+    def test_curl(curl: str | pathlib.Path):
+        if not (isinstance(curl, pathlib.Path) and curl.is_relative_to(dst)):
+            curl_path = platform_path(pathlib.Path(curl))
+        else:
+            curl_path = curl
+
+        try:
+            subprocess.check_call(
+                [
+                    curl_path,
+                    "-L",
+                    "--ssl-revoke-best-effort",
+                    "https://captive.apple.com/hotspot-detect.html",
+                ],
+                shell=True,
+                executable=SHELL,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
     # Bootstrap CURL
-    # on windows versions lower than 10 this is absolutely necessary because powershell downloads are slow as shit
     # windows 10 and later comes with curl
-    # HOWEVER i admire the features of the latest curl so i can't resist
-    curl_path = (bins / Files.CURL.value.file).relative_to(dst)
-    if os_name == "Windows":  # `and int(os_version.split(".")[2]) < 17063`
-        command = f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest {Files.CURL.value.url} -OutFile {curl_path}"
-    else:
-        command = f'{shutil.which("curl")} -L "{Files.CURL.value.url}" -o "{curl_path}"'
-    if not curl_path.exists():
+    curl_path = shutil.which("curl.exe" if os_name == "Windows" else "curl")
+
+    if not (curl_path and test_curl(curl_path)):
+        # Get cosmopolitan curl
+        curl_path = (bins / Files.CURL.value.file).relative_to(dst)
+
+        # on windows versions lower than 10 this is very helpful because powershell downloads are slow as shit
+        if os_name == "Windows":  # `and int(os_version.split(".")[2]) < 17063`
+            command = f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest {Files.CURL.value.url} -OutFile {curl_path}"
+            # command = (
+            #     f'certutil -urlcache -split -f "{Files.CURL.value.url}" "{curl_path}"'
+            # )
+        else:
+            command = (
+                f'{shutil.which("curl")} -L "{Files.CURL.value.url}" -o "{curl_path}"'
+            )
+
         run_cmd(command)
+        ensure_permissions(curl_path)
 
-    if os_name != "Windows":
-        # make curl executable
-        os.chmod(curl_path, 0o755)
-        # https://github.com/jart/cosmopolitan?tab=readme-ov-file#linux
-
-    # try using new curl
-    try:
-        subprocess.check_call(
-            [
-                curl_path,
-                "-L",
-                "--ssl-revoke-best-effort",  # some AV will do MITM, this prevent curl from dying
-                '"https://captive.apple.com/hotspot-detect.html"',
-            ],
-            shell=True,
-            executable=SHELL,
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except subprocess.CalledProcessError:
-        backup_curl = "curl.exe" if os_name == "Windows" else "curl"
-        curl_path = shutil.which(backup_curl)
-        if curl_path and os_name == "Windows":
-            # use windows curl with Windows paths
-            curl_path = platform_path(pathlib.Path(backup_curl))
-            try:
-                subprocess.check_call(
-                    [
-                        curl_path,
-                        "-L",
-                        "--ssl-revoke-best-effort",  # some AV will do MITM, this prevents curl from dying
-                        '"https://captive.apple.com/hotspot-detect.html"',
-                    ],
-                    shell=True,
-                    executable=SHELL,
-                    text=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except subprocess.CalledProcessError:
+        if not test_curl(curl_path):
+            if os_name == "Windows":
+                # Fallback to Windows-specific methods (e.g., bitsadmin)
                 windows_fallback = True
-        elif curl_path:
-            curl_path = pathlib.Path(curl_path)
-        elif not curl_path and os_name == "Windows":
-            # use bitsadmin
-            windows_fallback = True
-        elif not curl_path:
-            # irrecoverable
-            print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
-            sys.exit(3)
+            else:
+                print(ErrMsg.CURL_PREPARATION_FAILED.value, file=sys.stderr)
+                sys.exit(3)
+    else:
+        # Use existing curl
+        curl_path = platform_path(pathlib.Path(curl_path))
 
-    if not curl_path:
+    if not curl_path.exists():
         print(ErrMsg.CURL_RETRIEVAL_FAILED.value, file=sys.stderr)
         sys.exit(4)
 
@@ -643,9 +649,7 @@ def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
         file_size=progress_reporter.items[0],
     )
 
-    if os_name != "Windows":
-        # make llamafile executable
-        os.chmod(llamafile_path, 0o755)
+    ensure_permissions(llamafile_path)
 
     # model related information
     model_path = (models / model.file).relative_to(dst)

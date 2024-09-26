@@ -507,8 +507,6 @@ def download(
             curl_path, url, destination, dst, resume_flag, user_agent
         )
     else:
-        destination = pathlib.Path(destination).resolve()
-        destination = platform_path(destination)
         command = f'bitsadmin /transfer 1 "{url}" "{destination}"'
 
     run_cmd(

@@ -69,3 +69,6 @@ dotnet_diagnostic.CA1062.severity = suggestion
 
 # CA1310: Specify StringComparison for correctness
 dotnet_diagnostic.CA1310.severity = suggestion
+
+# CS1591: Disable XML documentation warnings
+dotnet_diagnostic.CS1591.severity = none

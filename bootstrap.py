@@ -464,17 +464,88 @@ def construct_command(
     dst: pathlib.Path | None = None,
     resume_flag: bool = False,
     user_agent: str = "",
-):
+) -> str:
+    """Constructs a curl command with specified parameters.
+
+    Args:
+        curl_path: Path to curl executable
+        url: URL to download from
+        destination: Output file path
+        dst: Optional Path object for destination file handling
+        resume_flag: Whether to resume a previous download
+        user_agent: Optional user agent string
+
+    Returns:
+        Constructed curl command as string
+    """
+    # Define base command components
+    base_components = [
+        str(curl_path),
+        "-#",                         # Show progress bar
+        "-L",                         # Follow redirects
+        f'"{url}"',
+        f'-o "{destination}"'
+    ]
+
+    # Add graceful SSL flag for non-Linux systems. See below
+
+    # [RWAI Core] [Message] RWAI has begun bootstrapping!
+    # Command failed: /usr/bin/curl -# -L --ssl-revoke-best-effort "https://api.github.com/repos/Mozilla-
+    # Ocho/llamafile/releases/latest" -o "/tmp/tmp7ubwa8j4" -A "igoforth/RWAILib", Error: curl: option --
+    # ssl-revoke-best-effort: is unknown
+    # curl: try 'curl --help' or 'curl --manual' for more information
+    # [RWAI Core] [Message] Process started.
+
+    # This is due to changing steam runtime's custom libcurl manipulation:
+    # // Copy existing environment variables
+    # foreach (DictionaryEntry de in Environment.GetEnvironmentVariables())
+    #     bootstrapProcess.StartInfo.EnvironmentVariables[de.Key.ToString()] = de.Value.ToString();
+    # // Add STEAM_RUNTIME=0 to the environment variables
+    # bootstrapProcess.StartInfo.EnvironmentVariables["STEAM_RUNTIME"] = "0";
+    # if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+    #     // Add LD_LIBRARY_PATH to the environment variables
+    #     if (RuntimeInformation.OSArchitecture == Architecture.X86)
+    #         bootstrapProcess.StartInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = "/usr/lib/i386-linux-gnu";
+    #     else bootstrapProcess.StartInfo.EnvironmentVariables["LD_LIBRARY_PATH"] = "/usr/lib/x86_64-linux-gnu";
+
+    # Steam script ($HOME/snap/steam/common/.local/share/Steam/ubuntu12_32/steam-runtime/setup.sh)
+    # mkdir "$steam_runtime_path/pinned_libs_32"
+    # mkdir "$steam_runtime_path/pinned_libs_64"
+    # Give steamrt a chance to fix libcurl ABI conflicts in a cleverer way.
+    # This will only work for glibc >= 2.30, but if it does work, it will
+    # create a libcurl_compat_${bitness}/libcurl.so.4 that is better than
+    # anything we can do from this shell script. This relies on tricky
+    # implementation details of glibc, so we're not using it by default yet
+    # (see run.sh for the opt-in mechanism).
+    # if [[ -x "$libcurl_compat_setup" ]] && "$libcurl_compat_setup" --runtime-optional "$steam_runti
+    # me_path"; then
+    #     debug "run.sh can optionally use shim library to support more than one libcurl ABI"
+    # fi
+    # if [[ -n "$identify_library_abi" ]]; then
+    #     mapfile -t output_array < <($identify_library_abi --directory "$steam_runtime_path" --skip-
+    # unversioned  2>/dev/null)
+    # else
+    #     mapfile -t output_array < <(find "$steam_runtime_path" -type l | grep \\\.so)
+    # fi
+    if os_name != "Linux":
+        base_components.insert(3, "--ssl-revoke-best-effort")
+
+    # Handle resume flag
     if resume_flag:
-        command = f'{str(curl_path)} -# -C - -L --ssl-revoke-best-effort "{url}" -o "{destination}"'
+        base_components.insert(1, "-C -")  # Insert resume flag after curl path
     else:
+        # Clean up existing file if dst is provided
         if dst and dst.exists():
             dst.unlink()
-        command = f'{str(curl_path)} -# -L --ssl-revoke-best-effort "{url}" -o "{destination}"'
+
+    # Build command
+    command = " ".join(base_components)
+
+    # Add user agent if provided
     if user_agent:
         command += f' -A "{user_agent}"'
-    return command
 
+    return command
 
 def download(
     curl_path: pathlib.Path,
@@ -570,7 +641,6 @@ def bootstrap(dst: pathlib.Path, model: Model, use_chinese_domains: bool):
                 [
                     curl_path,
                     "-L",
-                    "--ssl-revoke-best-effort",
                     "https://captive.apple.com/hotspot-detect.html",
                 ],
                 shell=True,

@@ -1,5 +1,6 @@
 # Dev environment files
 .vscode/
+.zed/
 .config/
 
 # Ignore nested artifacts
@@ -16,6 +17,7 @@ models/
 
 # Ignore minor project scripts
 utils/
+tools/
 
 # Ignore user-specific environment
 .env

@@ -110,7 +110,7 @@ dotnet cake          # сначала собирает AICore, затем AIItem
 
 ### AIServer (Python)
 
-Сервер упакован как zipapp [PEP 441](https://peps.python.org/pep-0441/) `.pyz`, который содержит платформозависимый интерпретатор Python и `grpcio`, поэтому работает без установленного в системе Python. Соберите его с помощью Python 3.11, `pdm` и `pdm-packer`. Полные шаги упаковки (создание zipapp, компиляция переводов и вендоринг Python и wheel-пакетов под каждую платформу) см. в [`AIServer/README.md`](AIServer/README.md).
+Сервер упакован как zipapp [PEP 441](https://peps.python.org/pep-0441/) `.pyz`, который содержит платформозависимый интерпретатор Python и `grpcio`, поэтому работает без установленного в системе Python. Соберите его с помощью Python 3.11 и [`uv`](https://docs.astral.sh/uv/). Полные шаги упаковки (создание zipapp, компиляция переводов и вендоринг Python и wheel-пакетов под каждую платформу) см. в [`AIServer/README.md`](AIServer/README.md).
 
 ### Релизы
 

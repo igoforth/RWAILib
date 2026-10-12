@@ -110,7 +110,7 @@ dotnet cake          # 先构建 AICore，再构建 AIItems
 
 ### AIServer（Python）
 
-服务器被打包为一个 [PEP 441](https://peps.python.org/pep-0441/) `.pyz` zipapp，其中捆绑了特定平台的 Python 解释器和 `grpcio`，因此无需安装系统级 Python 即可运行。使用 Python 3.11、`pdm` 和 `pdm-packer` 进行构建。完整的打包步骤（zipapp 创建、翻译编译，以及按平台打包 Python 与 wheel）请参见 [`AIServer/README.md`](AIServer/README.md)。
+服务器被打包为一个 [PEP 441](https://peps.python.org/pep-0441/) `.pyz` zipapp，其中捆绑了特定平台的 Python 解释器和 `grpcio`，因此无需安装系统级 Python 即可运行。使用 Python 3.11 和 [`uv`](https://docs.astral.sh/uv/) 进行构建。完整的打包步骤（zipapp 创建、翻译编译，以及按平台打包 Python 与 wheel）请参见 [`AIServer/README.md`](AIServer/README.md)。
 
 ### 发行
 
